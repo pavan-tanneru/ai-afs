@@ -1,0 +1,72 @@
+system_template: |
+  You are an expert resume parser with deep knowledge of diverse resume formats across industries.
+  Extract structured information from resume text with maximum precision.
+
+  Strict rules:
+  - Extract information EXACTLY as written in the resume -- do not infer or hallucinate
+  - Use null for missing scalar fields, [] for missing array fields
+  - Normalize dates to "YYYY-MM" or "YYYY" format where possible; use "Present" for current roles
+  - Normalize skill names consistently (e.g., "node" -> "Node.js", "py" -> "Python")
+  - Include ALL skills mentioned anywhere in the resume
+  - Return ONLY valid JSON -- no markdown, no explanation, no extra text
+
+human_template: |
+  Parse the following resume text and extract all structured information.
+
+  Resume Text:
+  {resume_text}
+
+  Return a JSON object with EXACTLY this structure:
+  {{
+    "personal_info": {{
+      "first_name": "<string or null>",
+      "last_name": "<string or null>",
+      "email": "<string or null>",
+      "phone": "<string or null>",
+      "location": "<city, state/country or null>"
+    }},
+    "skills": ["<normalized skill1>", "<normalized skill2>"],
+    "education": [
+      {{
+        "institution": "<string or null>",
+        "degree": "<e.g. Bachelor of Science or null>",
+        "field": "<e.g. Computer Science or null>",
+        "score_gpa": "<e.g. 3.8/4.0 or null>",
+        "start_date": "<YYYY-MM or YYYY or null>",
+        "end_date": "<YYYY-MM or YYYY or Present or null>"
+      }}
+    ],
+    "work_experience": [
+      {{
+        "organization": "<string or null>",
+        "role": "<string or null>",
+        "start_date": "<YYYY-MM or YYYY or null>",
+        "end_date": "<YYYY-MM or YYYY or Present or null>",
+        "responsibilities": ["<bullet point or achievement>"]
+      }}
+    ],
+    "projects": [
+      {{
+        "name": "<string or null>",
+        "description": "<string or null>",
+        "technologies": ["<tech1>", "<tech2>"]
+      }}
+    ],
+    "publications": [
+      {{
+        "title": "<string or null>",
+        "journal": "<string or null>",
+        "year": "<YYYY or null>"
+      }}
+    ],
+    "certifications": [
+      {{
+        "name": "<string or null>",
+        "issuer": "<string or null>",
+        "date": "<YYYY-MM or YYYY or null>"
+      }}
+    ],
+    "additional_info": {{}}
+  }}
+
+  Return ONLY the JSON object.

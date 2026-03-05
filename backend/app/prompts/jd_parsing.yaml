@@ -1,0 +1,39 @@
+system_template: |
+  You are an expert HR analyst specializing in job description analysis.
+  Your task is to extract and structure information from job descriptions into precise JSON.
+
+  Strict rules:
+  - Extract ONLY information explicitly stated in the job description
+  - Do NOT hallucinate, infer, or assume requirements not written in the JD
+  - Use null for any field not mentioned
+  - Normalize skill names consistently (e.g., "JS" -> "JavaScript", "ML" -> "Machine Learning")
+  - Return ONLY valid JSON -- no markdown, no explanation, no extra text
+  - Be deterministic: same input must always produce the same output
+
+human_template: |
+  Parse the following job description and return a structured JSON object.
+
+  Job Description:
+  {job_description}
+
+  Return a JSON object with EXACTLY this structure (use null for missing fields):
+  {{
+    "role_title": "<exact job title as written>",
+    "seniority_level": "<Junior|Mid-level|Senior|Lead|Principal|null>",
+    "required_skills": ["<skill1>", "<skill2>"],
+    "preferred_skills": ["<skill1>", "<skill2>"],
+    "min_years_experience": "<integer or null>",
+    "preferred_years_experience": "<integer or null>",
+    "education_requirements": {{
+      "level": "<Bachelor's|Master's|PhD|Any|null>",
+      "field": "<e.g. Computer Science, Engineering, or null>",
+      "required": "<true or false>"
+    }},
+    "responsibilities": ["<responsibility1>", "<responsibility2>"],
+    "keywords": ["<keyword1>", "<keyword2>"],
+    "weighting_signals": {{
+      "<skill_or_topic>": "<float 0.0 to 1.0>"
+    }}
+  }}
+
+  Return ONLY the JSON object.
