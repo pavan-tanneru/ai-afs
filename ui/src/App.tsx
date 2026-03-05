@@ -5,21 +5,27 @@ import { ResumeUpload } from './components/ResumeUpload'
 import { ProgressDashboard } from './components/ProgressDashboard'
 import { ResultsTable } from './components/ResultsTable'
 import { ExportButton } from './components/ExportButton'
-import type { AppStep, CandidateProgress, JDStructured } from './types'
+import type { AppStep, CandidateProgress, JDStructured, ScoringSchema } from './types'
 
 export default function App() {
   const [step, setStep] = useState<AppStep>('jd')
   const [jdText, setJdText] = useState('')
   const [jdStructured, setJdStructured] = useState<JDStructured | null>(null)
+  const [scoringSchema, setScoringSchema] = useState<ScoringSchema | null>(null)
   const [sessionId, setSessionId] = useState<string | null>(null)
   const [totalFiles, setTotalFiles] = useState(0)
   const [candidates, setCandidates] = useState<CandidateProgress[]>([])
 
-  const handleJDParsed = (text: string, structured: JDStructured) => {
+  const handleJDParsed = (text: string, structured: JDStructured, schema: ScoringSchema) => {
     setJdText(text)
     setJdStructured(structured)
-    // Small delay to let the user see the preview
-    setTimeout(() => setStep('upload'), 800)
+    setScoringSchema(schema)
+    // Do NOT auto-advance — user reviews schema and clicks "Proceed"
+  }
+
+  const handleProceedToUpload = (editedSchema: ScoringSchema) => {
+    setScoringSchema(editedSchema)
+    setStep('upload')
   }
 
   const handleProcessingStarted = (sid: string, total: number) => {
@@ -44,13 +50,17 @@ export default function App() {
 
       <main className="flex-1">
         {step === 'jd' && (
-          <JobDescriptionForm onParsed={handleJDParsed} />
+          <JobDescriptionForm
+            onParsed={handleJDParsed}
+            onProceed={handleProceedToUpload}
+          />
         )}
 
-        {step === 'upload' && jdStructured && (
+        {step === 'upload' && jdStructured && scoringSchema && (
           <ResumeUpload
             jdText={jdText}
             jdStructured={jdStructured}
+            scoringSchema={scoringSchema}
             onProcessingStarted={handleProcessingStarted}
           />
         )}
@@ -77,7 +87,13 @@ export default function App() {
                 </div>
                 <div className="flex gap-3">
                   <button
-                    onClick={() => { setStep('jd'); setCandidates([]); setJdText(''); setJdStructured(null) }}
+                    onClick={() => {
+                      setStep('jd')
+                      setCandidates([])
+                      setJdText('')
+                      setJdStructured(null)
+                      setScoringSchema(null)
+                    }}
                     className="px-4 py-2 rounded-xl border border-gray-200 text-sm text-gray-600 hover:border-brand-300 hover:text-brand-600 transition-colors"
                   >
                     New Search

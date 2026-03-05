@@ -8,12 +8,13 @@ import asyncio
 import os
 from pathlib import Path
 
+import json as _json
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 from fastapi.responses import JSONResponse
 
 from core.config import get_settings
 from core.logging_config import get_logger
-from models.schemas import StartProcessingResponse
+from models.schemas import StartProcessingResponse, ScoringSchema
 from agents.jd_agent import parse_job_description
 from agents.orchestrator import (
     create_session,
@@ -38,6 +39,7 @@ MAX_FILE_SIZE = 20 * 1024 * 1024  # 20 MB per file
 async def process_resumes(
     jd_text: str = Form(...),
     files: list[UploadFile] = File(...),
+    scoring_schema_json: str | None = Form(None),
 ):
     """
     Accepts the raw JD text + uploaded resume files.
@@ -51,11 +53,20 @@ async def process_resumes(
 
     # ── Step 1: Parse JD (cached) ──────────────────────────────────────────────
     try:
-        jd_id, jd_structured = await parse_job_description(jd_text)
+        jd_id, jd_structured, scoring_schema = await parse_job_description(jd_text)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"JD parsing failed: {e}")
 
     jd_dict = jd_structured.model_dump()
+
+    # Use user-supplied schema if provided, otherwise fall back to the generated one
+    if scoring_schema_json:
+        try:
+            scoring_schema_dict = ScoringSchema(**_json.loads(scoring_schema_json)).model_dump()
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"Invalid scoring_schema_json: {e}")
+    else:
+        scoring_schema_dict = scoring_schema.model_dump()
 
     # ── Validate & stream files to disk ───────────────────────────────────────
     os.makedirs(settings.UPLOAD_DIR, exist_ok=True)
@@ -100,7 +111,7 @@ async def process_resumes(
 
     # ── Create session & launch pipeline asynchronously ───────────────────────
     session_id = create_session(jd_id, len(valid_files))
-    asyncio.create_task(run_pipeline(valid_files, session_id, jd_dict))
+    asyncio.create_task(run_pipeline(valid_files, session_id, jd_dict, scoring_schema_dict))
 
     logger.info(
         "pipeline_started",

@@ -19,7 +19,7 @@ from pydantic import ValidationError
 
 from core.config import get_settings
 from core.logging_config import get_logger
-from models.schemas import ResumeStructured, EvaluationResult
+from models.schemas import ResumeStructured, EvaluationResult, DimensionEvaluation
 from tools.pdf_tool import parse_pdf
 from tools.docx_tool import parse_docx
 from tools.ocr_tool import parse_with_ocr
@@ -49,7 +49,7 @@ def _get_resume_chain():
 def _get_eval_chain():
     global _eval_chain
     if _eval_chain is None:
-        _eval_chain = build_chain("evaluation", EvaluationResult)
+        _eval_chain = build_chain("evaluation", DimensionEvaluation)
     return _eval_chain
 
 
@@ -64,6 +64,7 @@ class ResumeState(TypedDict):
     session_id: str
     candidate_id: str
     jd_structured: dict     # JobDescriptionStructured.model_dump()
+    scoring_schema: dict    # ScoringSchema.model_dump()
 
     # ── Parsing stage ──
     raw_text: Optional[str]
@@ -190,7 +191,7 @@ async def llm_extract_node(state: ResumeState) -> dict[str, Any]:
 
 
 async def evaluate_node(state: ResumeState) -> dict[str, Any]:
-    """STEP 3: Evaluate candidate fit against JD."""
+    """STEP 3: Evaluate candidate fit against JD using per-dimension scoring."""
     await _emit(state["session_id"], state["candidate_id"], "evaluating",
                 "Evaluating candidate fit…")
 
@@ -210,8 +211,34 @@ async def evaluate_node(state: ResumeState) -> dict[str, Any]:
         else:
             jd_json = json.dumps(state["jd_structured"], ensure_ascii=False)
             resume_json = json.dumps(state["resume_structured"], ensure_ascii=False)
-            raw = await invoke_with_retry(chain, {"jd_json": jd_json, "resume_json": resume_json})
-            evaluation = EvaluationResult(**raw)
+            scoring_schema_json = json.dumps(state["scoring_schema"], ensure_ascii=False)
+
+            raw = await invoke_with_retry(chain, {
+                "jd_json": jd_json,
+                "resume_json": resume_json,
+                "scoring_schema_json": scoring_schema_json,
+            })
+            dim_eval = DimensionEvaluation(**raw)
+
+            # ── Assemble score from dimensions (pure Python) ──────────────────
+            schema_dims = {
+                d["name"]: d["max_points"]
+                for d in state["scoring_schema"]["dimensions"]
+            }
+            fit_score = max(0, min(100, round(
+                sum(
+                    max(0, min(schema_dims.get(ds.name, 0), ds.score))
+                    for ds in dim_eval.scores
+                )
+            )))
+
+            # Top 3 bullets: from dimensions with highest max_points
+            top3_names = sorted(schema_dims, key=schema_dims.get, reverse=True)[:3]
+            score_map = {ds.name: ds.reason for ds in dim_eval.scores}
+            explanation = [score_map.get(n, "No evaluation available.") for n in top3_names]
+
+            evaluation = EvaluationResult(fit_score=fit_score, explanation=explanation)
+
             # Persist result for future uploads of the same resume+JD pair
             if state.get("file_hash"):
                 _eval_cache[cache_key] = evaluation.model_dump()

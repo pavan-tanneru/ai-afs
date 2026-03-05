@@ -14,8 +14,8 @@ async def parse_jd(body: ParseJDRequest):
         raise HTTPException(status_code=400, detail="jd_text cannot be empty")
 
     try:
-        jd_id, structured = await parse_job_description(body.jd_text)
-        return ParseJDResponse(jd_id=jd_id, structured=structured)
+        jd_id, structured, scoring_schema = await parse_job_description(body.jd_text)
+        return ParseJDResponse(jd_id=jd_id, structured=structured, scoring_schema=scoring_schema)
     except Exception as e:
         logger.error("parse_jd_error", error=str(e))
         raise HTTPException(status_code=500, detail=f"JD parsing failed: {e}")

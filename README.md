@@ -5,12 +5,14 @@ An open-source tool that automates resume screening using LLMs. Upload a job des
 ## Features
 
 - **Automated JD parsing** — extracts required skills, experience, and role details from any job description
+- **Dynamic scoring schema** — LLM generates a role-specific rubric (3–6 dimensions, weights summing to 100) tailored to the seniority level and role type
+- **Editable rubric** — review and customise dimension labels, descriptions, and weights before processing; add or remove dimensions freely
+- **Per-dimension evaluation** — each resume is scored independently on every dimension; the final score is assembled in Python from bounded dimension scores, not a holistic LLM guess
 - **Batch resume processing** — handles PDF and DOCX files with OCR fallback for scanned documents
-- **LLM-powered evaluation** — scores candidates against the JD using structured prompts via LangGraph
 - **Real-time progress** — live WebSocket updates as each resume is processed
 - **Sortable results table** — filter and rank candidates interactively in the UI
 - **Excel export** — one-click download of ranked results
-- **Caching** — JD parsing results are cached to avoid redundant LLM calls
+- **Caching** — JD parsing and scoring schema generation are cached to avoid redundant LLM calls
 - **Docker-first** — single `docker-compose up` to run everything
 
 ## Tech Stack
@@ -29,24 +31,26 @@ An open-source tool that automates resume screening using LLMs. Upload a job des
 ## Architecture
 
 ```
-┌─────────────────────────────────────────────────┐
-│                   Frontend (React)               │
-│  Step 1: JD Input → Step 2: Upload → Step 3:    │
-│          Processing (WebSocket) → Step 4: Results│
-└────────────────────┬────────────────────────────┘
-                     │ HTTP + WebSocket
-┌────────────────────▼────────────────────────────┐
-│                  FastAPI Backend                 │
-│                                                  │
-│  POST /api/jobs/parse   (cached JD parsing)      │
-│  POST /api/resumes/process  (start pipeline)     │
-│  GET  /api/resumes/results/{session_id}          │
-│  GET  /api/export/{session_id}  (Excel download) │
-│  WS   /ws/{session_id}  (live progress)          │
-│                                                  │
-│  LangGraph Pipeline per resume:                  │
-│    parse_file → llm_extract → evaluate           │
-└─────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────┐
+│                    Frontend (React)                   │
+│  Step 1: JD Input + Schema Review/Edit               │
+│  Step 2: Upload → Step 3: Processing → Step 4: Results│
+└─────────────────────┬────────────────────────────────┘
+                      │ HTTP + WebSocket
+┌─────────────────────▼────────────────────────────────┐
+│                   FastAPI Backend                     │
+│                                                       │
+│  POST /api/jobs/parse   (JD parse + schema, cached)  │
+│  POST /api/resumes/process  (start pipeline)          │
+│  GET  /api/resumes/results/{session_id}               │
+│  GET  /api/export/{session_id}  (Excel download)      │
+│  WS   /ws/{session_id}  (live progress)               │
+│                                                       │
+│  LangGraph Pipeline per resume:                       │
+│    parse_file → llm_extract → evaluate                │
+│                    ↑                                  │
+│    evaluate uses per-dimension scoring schema         │
+└──────────────────────────────────────────────────────┘
 ```
 
 ## Quick Start
@@ -141,10 +145,11 @@ npm run dev  # runs on http://localhost:5173
 ```
 ai-afs/
 ├── agents/           # AI agents and LangGraph pipeline
-│   ├── jd_agent.py       # JD parsing (cached LLM call)
-│   ├── resume_agent.py   # LangGraph StateGraph per resume
-│   ├── llm_client.py     # LangChain chain builder + retry
-│   └── orchestrator.py   # Session + concurrency management
+│   ├── jd_agent.py              # JD parsing (cached LLM call)
+│   ├── scoring_schema_agent.py  # Scoring schema generation (cached)
+│   ├── resume_agent.py          # LangGraph StateGraph per resume
+│   ├── llm_client.py            # LangChain chain builder + retry
+│   └── orchestrator.py          # Session + concurrency management
 ├── tools/            # Document processing tools
 │   ├── pdf_tool.py       # pdfplumber-based PDF parser
 │   ├── ocr_tool.py       # pytesseract OCR fallback
@@ -152,7 +157,8 @@ ai-afs/
 ├── prompts/          # YAML prompt templates
 │   ├── jd_parsing.yaml
 │   ├── resume_parsing.yaml
-│   └── evaluation.yaml
+│   ├── scoring_schema.yaml   # Rubric generation prompt
+│   └── evaluation.yaml       # Per-dimension scoring prompt
 ├── models/           # Pydantic schemas
 │   └── schemas.py
 ├── server/           # Thin HTTP/WS layer
@@ -181,16 +187,20 @@ ai-afs/
 
 1. **JD Parsing** — The job description is sent to the LLM which extracts structured data (role title, required skills, experience level, etc.). Results are cached by content hash.
 
-2. **Resume Upload** — Files are uploaded and a processing session is created. The backend immediately starts the LangGraph pipeline for each file concurrently (up to `MAX_CONCURRENCY`).
+2. **Scoring Schema Generation** — Immediately after JD parsing, a second LLM call generates a role-appropriate scoring rubric: 3–6 dimensions with `max_points` values summing to 100. Weights are adapted to role type — intern JDs weight education/projects highly, senior roles weight experience and leadership. The schema is also cached per JD.
 
-3. **LangGraph Pipeline** — Each resume goes through three nodes:
+3. **Schema Review & Edit** — The rubric is shown in the UI before any resumes are uploaded. Users can edit dimension labels, descriptions, and point weights; add new dimensions; or remove existing ones. The "Proceed" button is only enabled when weights sum to exactly 100. If the schema is edited, the user's version is sent to the backend and used instead of the cached one.
+
+4. **Resume Upload** — Files are uploaded and a processing session is created. The backend starts the LangGraph pipeline for each file concurrently (up to `MAX_CONCURRENCY`).
+
+5. **LangGraph Pipeline** — Each resume goes through three nodes:
    - `parse_file` — extracts raw text from PDF/DOCX (with OCR fallback for scanned PDFs)
-   - `llm_extract` — sends text to the LLM to extract candidate details
-   - `evaluate` — scores the candidate against the parsed JD
+   - `llm_extract` — sends text to the LLM to extract structured candidate details
+   - `evaluate` — scores the candidate on each schema dimension independently (LLM assigns 0..max_points per dimension with a one-sentence reason); Python assembles the final score by summing clamped dimension scores
 
-4. **Real-time Updates** — The frontend subscribes via WebSocket and receives a progress event after each resume completes.
+6. **Real-time Updates** — The frontend subscribes via WebSocket and receives a progress event after each resume completes.
 
-5. **Results & Export** — Candidates are displayed in a sortable table ranked by score. Results can be exported as an Excel file.
+7. **Results & Export** — Candidates are displayed in a sortable table ranked by score. The top-3 highest-weighted dimension reasons are shown as explanation bullets. Results can be exported as an Excel file.
 
 ## Contributing
 

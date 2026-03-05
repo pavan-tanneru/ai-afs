@@ -80,6 +80,29 @@ class ResumeStructured(BaseModel):
     additional_info: dict[str, Any] = Field(default_factory=dict)
 
 
+# ─── Scoring Schema ────────────────────────────────────────────────────────────
+
+class ScoringDimension(BaseModel):
+    name: str
+    label: str
+    description: str
+    max_points: int
+
+
+class ScoringSchema(BaseModel):
+    dimensions: list[ScoringDimension]
+
+
+class DimensionScore(BaseModel):
+    name: str
+    score: int
+    reason: str
+
+
+class DimensionEvaluation(BaseModel):
+    scores: list[DimensionScore]
+
+
 # ─── Evaluation Schema ─────────────────────────────────────────────────────────
 
 class EvaluationResult(BaseModel):
@@ -120,6 +143,7 @@ class ParseJDRequest(BaseModel):
 class ParseJDResponse(BaseModel):
     jd_id: str
     structured: JobDescriptionStructured
+    scoring_schema: ScoringSchema
 
 
 class StartProcessingResponse(BaseModel):

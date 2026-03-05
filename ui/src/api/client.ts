@@ -6,12 +6,13 @@ export const api = axios.create({ baseURL: BASE })
 
 export async function parseJD(jdText: string) {
   const res = await api.post('/api/jobs/parse', { jd_text: jdText })
-  return res.data as { jd_id: string; structured: unknown }
+  return res.data as { jd_id: string; structured: unknown; scoring_schema: unknown }
 }
 
-export async function processResumes(jdText: string, files: File[]) {
+export async function processResumes(jdText: string, files: File[], scoringSchema?: unknown) {
   const form = new FormData()
   form.append('jd_text', jdText)
+  if (scoringSchema) form.append('scoring_schema_json', JSON.stringify(scoringSchema))
   files.forEach(f => form.append('files', f))
   const res = await api.post('/api/resumes/process', form, {
     headers: { 'Content-Type': 'multipart/form-data' },

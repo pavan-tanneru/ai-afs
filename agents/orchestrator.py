@@ -54,6 +54,7 @@ def _build_initial_state(
     session_id: str,
     candidate_id: str,
     jd_dict: dict[str, Any],
+    scoring_schema_dict: dict[str, Any],
     file_hash: str = "",
 ) -> ResumeState:
     return ResumeState(
@@ -64,6 +65,7 @@ def _build_initial_state(
         session_id=session_id,
         candidate_id=candidate_id,
         jd_structured=jd_dict,
+        scoring_schema=scoring_schema_dict,
         raw_text=None,
         parse_method="primary",
         parse_confidence=0.0,
@@ -84,6 +86,7 @@ async def _process_single_resume(
     session_id: str,
     candidate_id: str,
     jd_dict: dict[str, Any],
+    scoring_schema_dict: dict[str, Any],
     semaphore: asyncio.Semaphore,
     file_hash: str = "",
 ) -> CandidateResult:
@@ -102,7 +105,8 @@ async def _process_single_resume(
         })
 
         initial_state = _build_initial_state(
-            file_path, file_name, file_type, session_id, candidate_id, jd_dict, file_hash
+            file_path, file_name, file_type, session_id, candidate_id,
+            jd_dict, scoring_schema_dict, file_hash
         )
 
         try:
@@ -164,6 +168,7 @@ async def run_pipeline(
     files: list[tuple[str, str, str]],  # [(file_path, file_name, file_type), ...]
     session_id: str,
     jd_dict: dict[str, Any],
+    scoring_schema_dict: dict[str, Any],
 ) -> None:
     """
     Process all resumes concurrently (up to MAX_CONCURRENCY at once).
@@ -216,7 +221,8 @@ async def run_pipeline(
     for file_path, file_name, file_type, file_hash in unique_files:
         candidate_id = str(uuid.uuid4())
         task = _process_single_resume(
-            file_path, file_name, file_type, session_id, candidate_id, jd_dict, semaphore, file_hash
+            file_path, file_name, file_type, session_id, candidate_id,
+            jd_dict, scoring_schema_dict, semaphore, file_hash
         )
         tasks.append(task)
 

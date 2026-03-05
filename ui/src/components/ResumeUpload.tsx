@@ -1,15 +1,16 @@
 import React, { useCallback, useRef, useState } from 'react'
 import { Upload, FileText, X, ChevronRight, Loader2, AlertCircle } from 'lucide-react'
-import type { JDStructured } from '../types'
+import type { JDStructured, ScoringSchema } from '../types'
 import { processResumes } from '../api/client'
 
 interface Props {
   jdText: string
   jdStructured: JDStructured
+  scoringSchema: ScoringSchema
   onProcessingStarted: (sessionId: string, totalFiles: number) => void
 }
 
-export const ResumeUpload: React.FC<Props> = ({ jdText, jdStructured, onProcessingStarted }) => {
+export const ResumeUpload: React.FC<Props> = ({ jdText, jdStructured, scoringSchema, onProcessingStarted }) => {
   const [files, setFiles] = useState<File[]>([])
   const [dragging, setDragging] = useState(false)
   const [loading, setLoading] = useState(false)
@@ -40,7 +41,7 @@ export const ResumeUpload: React.FC<Props> = ({ jdText, jdStructured, onProcessi
     setLoading(true)
     setError(null)
     try {
-      const res = await processResumes(jdText, files)
+      const res = await processResumes(jdText, files, scoringSchema)
       onProcessingStarted(res.session_id, res.total_files)
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Failed to start processing'

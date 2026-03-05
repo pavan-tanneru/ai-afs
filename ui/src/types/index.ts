@@ -68,4 +68,15 @@ export interface JDStructured {
   keywords: string[]
 }
 
+export interface ScoringDimension {
+  name: string
+  label: string
+  description: string
+  max_points: number
+}
+
+export interface ScoringSchema {
+  dimensions: ScoringDimension[]
+}
+
 export type AppStep = 'jd' | 'upload' | 'processing' | 'results'
