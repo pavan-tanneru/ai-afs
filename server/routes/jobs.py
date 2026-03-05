@@ -1,8 +1,8 @@
 """POST /api/jobs/parse — Step 1: Parse a job description (cached)."""
 from fastapi import APIRouter, HTTPException
-from app.models.schemas import ParseJDRequest, ParseJDResponse
-from app.pipeline.jd_parser import parse_job_description
-from app.core.logging_config import get_logger
+from models.schemas import ParseJDRequest, ParseJDResponse
+from agents.jd_agent import parse_job_description
+from core.logging_config import get_logger
 
 logger = get_logger(__name__)
 router = APIRouter(prefix="/api/jobs", tags=["jobs"])

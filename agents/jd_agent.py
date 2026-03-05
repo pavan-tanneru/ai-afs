@@ -11,10 +11,10 @@ import json
 import diskcache
 from pydantic import ValidationError
 
-from app.core.config import get_settings
-from app.core.logging_config import get_logger
-from app.models.schemas import JobDescriptionStructured
-from app.pipeline.llm_client import build_chain, invoke_with_retry
+from core.config import get_settings
+from core.logging_config import get_logger
+from models.schemas import JobDescriptionStructured
+from agents.llm_client import build_chain, invoke_with_retry
 
 logger = get_logger(__name__)
 settings = get_settings()

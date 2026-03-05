@@ -2,7 +2,7 @@ services:
   # ── Backend ────────────────────────────────────────────────────────────────
   backend:
     build:
-      context: ./backend
+      context: .
       dockerfile: Dockerfile
       target: app
     container_name: ai_afs_backend
@@ -27,7 +27,7 @@ services:
   # ── Frontend ───────────────────────────────────────────────────────────────
   frontend:
     build:
-      context: ./frontend
+      context: ./ui
       dockerfile: Dockerfile
       target: production
     container_name: ai_afs_frontend

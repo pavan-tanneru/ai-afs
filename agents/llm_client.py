@@ -21,8 +21,8 @@ from tenacity import (
     before_sleep_log,
 )
 
-from app.core.config import get_settings
-from app.core.logging_config import get_logger
+from core.config import get_settings
+from core.logging_config import get_logger
 
 logger = get_logger(__name__)
 settings = get_settings()

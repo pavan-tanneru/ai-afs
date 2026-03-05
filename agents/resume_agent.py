@@ -17,14 +17,14 @@ from langgraph.graph import StateGraph, START, END
 from typing_extensions import TypedDict
 from pydantic import ValidationError
 
-from app.core.config import get_settings
-from app.core.logging_config import get_logger
-from app.models.schemas import ResumeStructured, EvaluationResult
-from app.parsers.pdf_parser import parse_pdf
-from app.parsers.docx_parser import parse_docx
-from app.parsers.ocr_parser import parse_with_ocr
-from app.pipeline.llm_client import build_chain, invoke_with_retry
-from app.ws.manager import manager
+from core.config import get_settings
+from core.logging_config import get_logger
+from models.schemas import ResumeStructured, EvaluationResult
+from tools.pdf_tool import parse_pdf
+from tools.docx_tool import parse_docx
+from tools.ocr_tool import parse_with_ocr
+from agents.llm_client import build_chain, invoke_with_retry
+from server.ws.manager import manager
 
 logger = get_logger(__name__)
 _settings = get_settings()

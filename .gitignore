@@ -12,8 +12,9 @@ cache/
 uploads/
 *.xlsx
 node_modules/
-frontend/dist/
-frontend/.env
+ui/dist/
+ui/.env
 *.log
 .pytest_cache/
 .mypy_cache/
+.claude/

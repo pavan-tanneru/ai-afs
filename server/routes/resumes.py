@@ -11,11 +11,11 @@ from pathlib import Path
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 from fastapi.responses import JSONResponse
 
-from app.core.config import get_settings
-from app.core.logging_config import get_logger
-from app.models.schemas import StartProcessingResponse
-from app.pipeline.jd_parser import parse_job_description
-from app.pipeline.orchestrator import (
+from core.config import get_settings
+from core.logging_config import get_logger
+from models.schemas import StartProcessingResponse
+from agents.jd_agent import parse_job_description
+from agents.orchestrator import (
     create_session,
     get_results,
     get_session,

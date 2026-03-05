@@ -11,10 +11,10 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
-from app.core.config import get_settings
-from app.core.logging_config import get_logger, setup_logging
-from app.api.routes import jobs, resumes, export as export_router
-from app.ws.manager import manager
+from core.config import get_settings
+from core.logging_config import get_logger, setup_logging
+from server.routes import jobs, resumes, export as export_router
+from server.ws.manager import manager
 
 setup_logging()
 logger = get_logger(__name__)

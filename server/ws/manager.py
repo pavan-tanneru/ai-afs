@@ -6,7 +6,7 @@ from collections import defaultdict
 from typing import Any
 
 from fastapi import WebSocket
-from app.core.logging_config import get_logger
+from core.logging_config import get_logger
 
 logger = get_logger(__name__)
 

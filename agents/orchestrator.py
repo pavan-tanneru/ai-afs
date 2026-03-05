@@ -12,11 +12,11 @@ import uuid
 from pathlib import Path
 from typing import Any
 
-from app.core.config import get_settings
-from app.core.logging_config import get_logger
-from app.models.schemas import CandidateResult, SessionInfo
-from app.pipeline.resume_pipeline import resume_graph, ResumeState
-from app.ws.manager import manager
+from core.config import get_settings
+from core.logging_config import get_logger
+from models.schemas import CandidateResult, SessionInfo
+from agents.resume_agent import resume_graph, ResumeState
+from server.ws.manager import manager
 
 logger = get_logger(__name__)
 settings = get_settings()
