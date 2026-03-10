@@ -2,10 +2,33 @@ export type Stage =
   | 'queued'
   | 'parsing'
   | 'extracting'
+  | 'screening'
   | 'evaluating'
   | 'done'
   | 'error'
   | 'skipped'
+  | 'filtered'
+  | 'review'
+
+export type ScreeningOutcome =
+  | 'ranked'
+  | 'filtered'
+  | 'review'
+  | 'duplicate'
+  | 'error'
+
+export interface GraduationYearInfo {
+  selected_degree?: string
+  graduation_year?: number
+  source: 'explicit' | 'inferred' | 'unknown' | 'not_applicable'
+}
+
+export interface GraduationYearFilterConfig {
+  enabled: boolean
+  accepted_years: number[]
+  unknown_year_behavior: 'manual_review'
+  degree_selection: 'highest_relevant_degree'
+}
 
 export interface CandidateProgress {
   candidateId: string
@@ -18,6 +41,10 @@ export interface CandidateProgress {
   stage: Stage
   error?: string
   parseMethod?: string
+  screeningOutcome: ScreeningOutcome
+  screeningReason?: string
+  graduationYearInfo: GraduationYearInfo
+  previewAvailable: boolean
 }
 
 export interface WSProgressMsg {
@@ -44,6 +71,10 @@ export interface WSResultMsg {
     stage: Stage
     error?: string
     parse_method?: string
+    screening_outcome: ScreeningOutcome
+    screening_reason?: string
+    graduation_year_info?: GraduationYearInfo
+    preview_available?: boolean
   }
 }
 
@@ -64,6 +95,11 @@ export interface JDStructured {
   preferred_skills: string[]
   min_years_experience?: number
   preferred_years_experience?: number
+  education_requirements?: {
+    level?: string
+    field?: string
+    required?: boolean
+  }
   responsibilities: string[]
   keywords: string[]
 }

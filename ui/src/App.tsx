@@ -5,16 +5,32 @@ import { ResumeUpload } from './components/ResumeUpload'
 import { ProgressDashboard } from './components/ProgressDashboard'
 import { ResultsTable } from './components/ResultsTable'
 import { ExportButton } from './components/ExportButton'
-import type { AppStep, CandidateProgress, JDStructured, ScoringSchema } from './types'
+import { closeResumeSession } from './api/client'
+import type {
+  AppStep,
+  CandidateProgress,
+  GraduationYearFilterConfig,
+  JDStructured,
+  ScoringSchema,
+} from './types'
+
+const DEFAULT_GRADUATION_FILTER: GraduationYearFilterConfig = {
+  enabled: false,
+  accepted_years: [],
+  unknown_year_behavior: 'manual_review',
+  degree_selection: 'highest_relevant_degree',
+}
 
 export default function App() {
   const [step, setStep] = useState<AppStep>('jd')
   const [jdText, setJdText] = useState('')
   const [jdStructured, setJdStructured] = useState<JDStructured | null>(null)
   const [scoringSchema, setScoringSchema] = useState<ScoringSchema | null>(null)
+  const [graduationFilter, setGraduationFilter] = useState<GraduationYearFilterConfig>(DEFAULT_GRADUATION_FILTER)
   const [sessionId, setSessionId] = useState<string | null>(null)
   const [totalFiles, setTotalFiles] = useState(0)
   const [candidates, setCandidates] = useState<CandidateProgress[]>([])
+  const [closingSession, setClosingSession] = useState(false)
 
   const handleJDParsed = (text: string, structured: JDStructured, schema: ScoringSchema) => {
     setJdText(text)
@@ -23,8 +39,12 @@ export default function App() {
     // Do NOT auto-advance — user reviews schema and clicks "Proceed"
   }
 
-  const handleProceedToUpload = (editedSchema: ScoringSchema) => {
+  const handleProceedToUpload = (
+    editedSchema: ScoringSchema,
+    nextGraduationFilter: GraduationYearFilterConfig,
+  ) => {
     setScoringSchema(editedSchema)
+    setGraduationFilter(nextGraduationFilter)
     setStep('upload')
   }
 
@@ -37,6 +57,32 @@ export default function App() {
   const handleComplete = (finishedCandidates: CandidateProgress[]) => {
     setCandidates(finishedCandidates)
     setTimeout(() => setStep('results'), 1200)
+  }
+
+  const resetSearchState = () => {
+    setStep('jd')
+    setCandidates([])
+    setJdText('')
+    setJdStructured(null)
+    setScoringSchema(null)
+    setGraduationFilter(DEFAULT_GRADUATION_FILTER)
+    setSessionId(null)
+    setTotalFiles(0)
+  }
+
+  const handleNewSearch = async () => {
+    const activeSessionId = sessionId
+    setClosingSession(true)
+    try {
+      if (activeSessionId) {
+        await closeResumeSession(activeSessionId)
+      }
+    } catch (error) {
+      console.error('Failed to close session', error)
+    } finally {
+      resetSearchState()
+      setClosingSession(false)
+    }
   }
 
   const stepNum =
@@ -61,6 +107,7 @@ export default function App() {
             jdText={jdText}
             jdStructured={jdStructured}
             scoringSchema={scoringSchema}
+            graduationFilter={graduationFilter}
             onProcessingStarted={handleProcessingStarted}
           />
         )}
@@ -87,16 +134,11 @@ export default function App() {
                 </div>
                 <div className="flex gap-3">
                   <button
-                    onClick={() => {
-                      setStep('jd')
-                      setCandidates([])
-                      setJdText('')
-                      setJdStructured(null)
-                      setScoringSchema(null)
-                    }}
-                    className="px-4 py-2 rounded-xl border border-gray-200 text-sm text-gray-600 hover:border-brand-300 hover:text-brand-600 transition-colors"
+                    onClick={() => { void handleNewSearch() }}
+                    disabled={closingSession}
+                    className="px-4 py-2 rounded-xl border border-gray-200 text-sm text-gray-600 hover:border-brand-300 hover:text-brand-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                   >
-                    New Search
+                    {closingSession ? 'Closing Session…' : 'New Search'}
                   </button>
                   {sessionId && (
                     <ExportButton

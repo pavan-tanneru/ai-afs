@@ -1,4 +1,4 @@
-"""Generate Excel export with 5 columns: Name, Email, Phone, Score, Explanation."""
+"""Generate Excel export with ranking and screening details."""
 from __future__ import annotations
 
 import io
@@ -16,13 +16,23 @@ _ALT_FILL = PatternFill(start_color="F0F4FF", end_color="F0F4FF", fill_type="sol
 _THIN = Side(border_style="thin", color="D0D0D0")
 _BORDER = Border(left=_THIN, right=_THIN, top=_THIN, bottom=_THIN)
 
-HEADERS = ["Name", "Email", "Phone", "Score", "Explanation"]
-COL_WIDTHS = [28, 34, 18, 10, 80]
+HEADERS = [
+    "Name",
+    "Email",
+    "Phone",
+    "Score",
+    "Outcome",
+    "Reason",
+    "Graduation Year",
+    "Grad Year Source",
+    "Explanation",
+]
+COL_WIDTHS = [28, 34, 18, 10, 14, 42, 16, 16, 80]
 
 
 def generate_excel(results: list[CandidateResult]) -> bytes:
     """
-    Build an Excel workbook from candidate results sorted by score (descending).
+    Build an Excel workbook from candidate results with screening outcomes.
     Returns raw bytes ready to be streamed as a download.
     """
     wb = Workbook()
@@ -40,20 +50,34 @@ def generate_excel(results: list[CandidateResult]) -> bytes:
     ws.row_dimensions[1].height = 22
 
     # ── Data rows ──────────────────────────────────────────────────────────────
-    sorted_results = sorted(
-        [r for r in results if r.stage == "done"],
-        key=lambda r: (r.score or 0),
-        reverse=True,
-    )
+    sorted_results = sorted(results, key=_sort_key)
 
     for row_idx, candidate in enumerate(sorted_results, start=2):
         name = candidate.name or "—"
         email = candidate.email or "—"
         phone = candidate.phone or "—"
         score = candidate.score if candidate.score is not None else "—"
+        outcome = _format_outcome(candidate)
+        reason = candidate.screening_reason or candidate.error or "—"
+        graduation_year = (
+            candidate.graduation_year_info.graduation_year
+            if candidate.graduation_year_info.graduation_year is not None
+            else "—"
+        )
+        graduation_source = candidate.graduation_year_info.source.replace("_", " ").title()
         explanation = _merge_explanation(candidate.explanation)
 
-        row_data = [name, email, phone, score, explanation]
+        row_data = [
+            name,
+            email,
+            phone,
+            score,
+            outcome,
+            reason,
+            graduation_year,
+            graduation_source,
+            explanation,
+        ]
         fill = _ALT_FILL if row_idx % 2 == 0 else None
 
         for col_idx, value in enumerate(row_data, start=1):
@@ -87,3 +111,23 @@ def _merge_explanation(bullets: list[str]) -> str:
     if not bullets:
         return "—"
     return "\n".join(f"• {b.lstrip('•').strip()}" for b in bullets)
+
+
+def _format_outcome(candidate: CandidateResult) -> str:
+    if candidate.stage == "done":
+        return "Ranked"
+    if candidate.stage == "filtered":
+        return "Filtered"
+    if candidate.stage == "review":
+        return "Manual Review"
+    if candidate.stage == "skipped":
+        return "Duplicate"
+    if candidate.stage == "error":
+        return "Error"
+    return candidate.stage.replace("_", " ").title()
+
+
+def _sort_key(candidate: CandidateResult) -> tuple[int, int]:
+    ranked_priority = 0 if candidate.stage == "done" else 1
+    score = -(candidate.score or 0) if candidate.stage == "done" else 0
+    return ranked_priority, score

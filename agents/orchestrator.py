@@ -26,6 +26,7 @@ ALLOWED_EXTENSIONS = {".pdf", ".docx"}
 # ─── In-memory session store (single-process) ─────────────────────────────────
 _sessions: dict[str, SessionInfo] = {}
 _results: dict[str, list[CandidateResult]] = {}
+_previews: dict[str, dict[str, dict[str, str]]] = {}
 
 
 def create_session(jd_hash: str, total_files: int) -> str:
@@ -36,6 +37,7 @@ def create_session(jd_hash: str, total_files: int) -> str:
         total_files=total_files,
     )
     _results[session_id] = []
+    _previews[session_id] = {}
     return session_id
 
 
@@ -47,6 +49,27 @@ def get_results(session_id: str) -> list[CandidateResult]:
     return sorted(_results.get(session_id, []), key=lambda r: (r.score or -1), reverse=True)
 
 
+def get_preview(session_id: str, candidate_id: str) -> dict[str, str] | None:
+    return _previews.get(session_id, {}).get(candidate_id)
+
+
+def close_session(session_id: str) -> bool:
+    session = _sessions.pop(session_id, None)
+    previews = _previews.pop(session_id, {})
+    _results.pop(session_id, None)
+
+    for preview in previews.values():
+        file_path = preview.get("file_path")
+        if not file_path:
+            continue
+        try:
+            os.unlink(file_path)
+        except OSError:
+            logger.warning("preview_file_cleanup_failed", session_id=session_id, file_path=file_path)
+
+    return session is not None
+
+
 def _build_initial_state(
     file_path: str,
     file_name: str,
@@ -55,6 +78,7 @@ def _build_initial_state(
     candidate_id: str,
     jd_dict: dict[str, Any],
     scoring_schema_dict: dict[str, Any],
+    graduation_filter_dict: dict[str, Any],
     file_hash: str = "",
 ) -> ResumeState:
     return ResumeState(
@@ -66,12 +90,16 @@ def _build_initial_state(
         candidate_id=candidate_id,
         jd_structured=jd_dict,
         scoring_schema=scoring_schema_dict,
+        graduation_filter=graduation_filter_dict,
         raw_text=None,
         parse_method="primary",
         parse_confidence=0.0,
         parse_error=None,
         resume_structured=None,
         llm_error=None,
+        screening_reason=None,
+        screening_outcome="ranked",
+        graduation_year_info=None,
         evaluation=None,
         eval_error=None,
         stage="queued",
@@ -87,6 +115,7 @@ async def _process_single_resume(
     candidate_id: str,
     jd_dict: dict[str, Any],
     scoring_schema_dict: dict[str, Any],
+    graduation_filter_dict: dict[str, Any],
     semaphore: asyncio.Semaphore,
     file_hash: str = "",
 ) -> CandidateResult:
@@ -106,7 +135,7 @@ async def _process_single_resume(
 
         initial_state = _build_initial_state(
             file_path, file_name, file_type, session_id, candidate_id,
-            jd_dict, scoring_schema_dict, file_hash
+            jd_dict, scoring_schema_dict, graduation_filter_dict, file_hash
         )
 
         try:
@@ -115,11 +144,18 @@ async def _process_single_resume(
             logger.error("graph_invocation_error", file=file_name, error=str(e))
             final_state = {**initial_state, "stage": "error", "error": str(e)}
 
+        if file_type == "pdf":
+            _previews.setdefault(session_id, {})[candidate_id] = {
+                "file_path": file_path,
+                "file_name": file_name,
+                "content_type": "application/pdf",
+            }
+
         # Build CandidateResult from final state
         result = _state_to_result(final_state, candidate_id, file_name)
 
         # Emit error event if pipeline failed before evaluate_node sent a result
-        if result.stage in ("error", "skipped"):
+        if result.stage != "done":
             await manager.send(session_id, {
                 "type": "result",
                 "session_id": session_id,
@@ -127,11 +163,11 @@ async def _process_single_resume(
                 "result": result.model_dump(),
             })
 
-        # Clean up temp file
-        try:
-            os.unlink(file_path)
-        except OSError:
-            pass
+        if file_type != "pdf":
+            try:
+                os.unlink(file_path)
+            except OSError:
+                pass
 
         logger.info("resume_processing_done", file=file_name, stage=result.stage, score=result.score)
         return result
@@ -161,6 +197,10 @@ def _state_to_result(state: dict, candidate_id: str, file_name: str) -> Candidat
         stage=stage,
         error=state.get("error"),
         parse_method=state.get("parse_method"),
+        screening_outcome=state.get("screening_outcome", "error" if stage == "error" else "ranked"),
+        screening_reason=state.get("screening_reason"),
+        graduation_year_info=state.get("graduation_year_info") or {},
+        preview_available=state.get("file_type") == "pdf" and stage != "skipped",
     )
 
 
@@ -169,6 +209,7 @@ async def run_pipeline(
     session_id: str,
     jd_dict: dict[str, Any],
     scoring_schema_dict: dict[str, Any],
+    graduation_filter_dict: dict[str, Any],
 ) -> None:
     """
     Process all resumes concurrently (up to MAX_CONCURRENCY at once).
@@ -195,6 +236,8 @@ async def run_pipeline(
                 file_name=file_name,
                 stage="skipped",
                 error=f"Duplicate of '{original}' — skipped",
+                screening_outcome="duplicate",
+                screening_reason=f"Duplicate of '{original}' — skipped",
             )
             duplicate_results.append(dup_result)
             try:
@@ -222,7 +265,7 @@ async def run_pipeline(
         candidate_id = str(uuid.uuid4())
         task = _process_single_resume(
             file_path, file_name, file_type, session_id, candidate_id,
-            jd_dict, scoring_schema_dict, semaphore, file_hash
+            jd_dict, scoring_schema_dict, graduation_filter_dict, semaphore, file_hash
         )
         tasks.append(task)
 

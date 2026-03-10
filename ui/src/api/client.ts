@@ -9,10 +9,16 @@ export async function parseJD(jdText: string) {
   return res.data as { jd_id: string; structured: unknown; scoring_schema: unknown }
 }
 
-export async function processResumes(jdText: string, files: File[], scoringSchema?: unknown) {
+export async function processResumes(
+  jdText: string,
+  files: File[],
+  scoringSchema?: unknown,
+  graduationFilter?: unknown,
+) {
   const form = new FormData()
   form.append('jd_text', jdText)
   if (scoringSchema) form.append('scoring_schema_json', JSON.stringify(scoringSchema))
+  if (graduationFilter) form.append('graduation_filter_json', JSON.stringify(graduationFilter))
   files.forEach(f => form.append('files', f))
   const res = await api.post('/api/resumes/process', form, {
     headers: { 'Content-Type': 'multipart/form-data' },
@@ -28,4 +34,12 @@ export function createWebSocket(sessionId: string): WebSocket {
   const wsBase = import.meta.env.VITE_WS_URL
     || (window.location.protocol === 'https:' ? 'wss://' : 'ws://') + window.location.host
   return new WebSocket(`${wsBase}/ws/${sessionId}`)
+}
+
+export function getResumePreviewUrl(sessionId: string, candidateId: string) {
+  return `${BASE}/api/resumes/preview-file/${sessionId}/${candidateId}`
+}
+
+export async function closeResumeSession(sessionId: string) {
+  await api.delete(`/api/resumes/session/${sessionId}`)
 }

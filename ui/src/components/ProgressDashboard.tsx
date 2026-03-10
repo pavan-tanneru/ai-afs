@@ -13,13 +13,17 @@ const STAGE_LABEL: Record<Stage, string> = {
   queued:     'Queued',
   parsing:    'Parsing file',
   extracting: 'Extracting data',
+  screening:  'Applying graduation filter',
   evaluating: 'Evaluating fit',
   done:       'Complete',
   error:      'Error',
   skipped:    'Skipped',
+  filtered:   'Filtered out',
+  review:     'Manual review',
 }
 
-const STAGE_ORDER: Stage[] = ['queued', 'parsing', 'extracting', 'evaluating', 'done']
+const STAGE_ORDER: Stage[] = ['queued', 'parsing', 'extracting', 'screening', 'evaluating', 'done']
+const FINAL_STAGES: Stage[] = ['done', 'error', 'skipped', 'filtered', 'review']
 
 function StageBar({ stage }: { stage: Stage }) {
   const idx = STAGE_ORDER.indexOf(stage)
@@ -56,8 +60,6 @@ function ScoreBadge({ score }: { score?: number }) {
 
 export const ProgressDashboard: React.FC<Props> = ({ sessionId, totalFiles, onComplete }) => {
   const [candidates, setCandidates] = useState<Map<string, CandidateProgress>>(new Map())
-  const [completed, setCompleted] = useState(0)
-  const [failed, setFailed] = useState(0)
   const [isDone, setIsDone] = useState(false)
   const [filter, setFilter] = useState<'all' | 'done' | 'processing' | 'error'>('all')
   const wsRef = useRef<WebSocket | null>(null)
@@ -78,6 +80,9 @@ export const ProgressDashboard: React.FC<Props> = ({ sessionId, totalFiles, onCo
             candidateId: msg.candidate_id,
             fileName: msg.candidate_id,
             stage: 'queued' as Stage,
+            screeningOutcome: 'ranked' as const,
+            graduationYearInfo: { source: 'not_applicable' as const },
+            previewAvailable: false,
           }
           next.set(msg.candidate_id, { ...existing, stage: msg.stage })
           return next
@@ -97,11 +102,13 @@ export const ProgressDashboard: React.FC<Props> = ({ sessionId, totalFiles, onCo
             stage: r.stage as Stage,
             error: r.error,
             parseMethod: r.parse_method,
+            screeningOutcome: r.screening_outcome,
+            screeningReason: r.screening_reason,
+            graduationYearInfo: r.graduation_year_info || { source: 'not_applicable' },
+            previewAvailable: Boolean(r.preview_available),
           })
           return next
         })
-        if (r.stage === 'done') setCompleted(c => c + 1)
-        else setFailed(f => f + 1)
       } else if (msg.type === 'complete') {
         setIsDone(true)
         ws.close()
@@ -120,12 +127,15 @@ export const ProgressDashboard: React.FC<Props> = ({ sessionId, totalFiles, onCo
   }, [isDone, candidates])
 
   const all = Array.from(candidates.values())
+  const rankedCount = all.filter(c => c.stage === 'done').length
+  const issueCount = all.filter(c => FINAL_STAGES.includes(c.stage) && c.stage !== 'done').length
+  const resolvedCount = all.filter(c => FINAL_STAGES.includes(c.stage)).length
   const filtered = filter === 'all' ? all :
     filter === 'done' ? all.filter(c => c.stage === 'done') :
-    filter === 'processing' ? all.filter(c => !['done','error','skipped'].includes(c.stage)) :
-    all.filter(c => c.stage === 'error' || c.stage === 'skipped')
+    filter === 'processing' ? all.filter(c => !FINAL_STAGES.includes(c.stage)) :
+    all.filter(c => FINAL_STAGES.includes(c.stage) && c.stage !== 'done')
 
-  const progress = totalFiles > 0 ? Math.round(((completed + failed) / totalFiles) * 100) : 0
+  const progress = totalFiles > 0 ? Math.round((resolvedCount / totalFiles) * 100) : 0
 
   return (
     <div className="max-w-5xl mx-auto px-4 py-8">
@@ -141,7 +151,7 @@ export const ProgressDashboard: React.FC<Props> = ({ sessionId, totalFiles, onCo
             {isDone ? 'Processing Complete' : 'Processing Resumes…'}
           </h1>
           <p className="text-gray-500 text-sm mt-1">
-            {completed} completed · {failed} failed · {totalFiles - completed - failed} remaining
+            {rankedCount} ranked · {issueCount} issues · {Math.max(totalFiles - resolvedCount, 0)} remaining
           </p>
         </div>
       </div>
@@ -150,7 +160,7 @@ export const ProgressDashboard: React.FC<Props> = ({ sessionId, totalFiles, onCo
       <div className="mb-6">
         <div className="flex justify-between text-xs text-gray-500 mb-1">
           <span>{progress}% complete</span>
-          <span>{completed + failed} / {totalFiles}</span>
+          <span>{resolvedCount} / {totalFiles}</span>
         </div>
         <div className="h-2.5 bg-gray-200 rounded-full overflow-hidden">
           <div
@@ -172,11 +182,11 @@ export const ProgressDashboard: React.FC<Props> = ({ sessionId, totalFiles, onCo
                 : 'bg-white border border-gray-200 text-gray-600 hover:border-brand-300'
             }`}
           >
-            {f.charAt(0).toUpperCase() + f.slice(1)}
+            {f === 'error' ? 'Issues' : f.charAt(0).toUpperCase() + f.slice(1)}
             {f === 'all' && ` (${all.length})`}
-            {f === 'done' && ` (${all.filter(c => c.stage === 'done').length})`}
-            {f === 'processing' && ` (${all.filter(c => !['done','error','skipped'].includes(c.stage)).length})`}
-            {f === 'error' && ` (${all.filter(c => c.stage === 'error' || c.stage === 'skipped').length})`}
+            {f === 'done' && ` (${rankedCount})`}
+            {f === 'processing' && ` (${all.filter(c => !FINAL_STAGES.includes(c.stage)).length})`}
+            {f === 'error' && ` (${issueCount})`}
           </button>
         ))}
       </div>
@@ -189,6 +199,8 @@ export const ProgressDashboard: React.FC<Props> = ({ sessionId, totalFiles, onCo
             className={`bg-white border rounded-xl px-4 py-3 flex items-start gap-3 transition-all ${
               c.stage === 'done' ? 'border-emerald-100' :
               c.stage === 'error' ? 'border-red-100 bg-red-50/30' :
+              c.stage === 'filtered' ? 'border-amber-100 bg-amber-50/40' :
+              c.stage === 'review' ? 'border-yellow-100 bg-yellow-50/50' :
               'border-gray-100'
             }`}
           >
@@ -196,7 +208,7 @@ export const ProgressDashboard: React.FC<Props> = ({ sessionId, totalFiles, onCo
             <div className="mt-0.5 flex-shrink-0">
               {c.stage === 'done' ? <CheckCircle className="w-5 h-5 text-emerald-500" /> :
                c.stage === 'error' ? <XCircle className="w-5 h-5 text-red-400" /> :
-               c.stage === 'skipped' ? <AlertTriangle className="w-5 h-5 text-amber-400" /> :
+               FINAL_STAGES.includes(c.stage) ? <AlertTriangle className="w-5 h-5 text-amber-400" /> :
                <Loader2 className="w-5 h-5 text-brand-400 animate-spin" />}
             </div>
 
@@ -225,8 +237,10 @@ export const ProgressDashboard: React.FC<Props> = ({ sessionId, totalFiles, onCo
               </div>
 
               {/* Error message */}
-              {c.error && (
-                <p className="text-xs text-red-500 mt-1 truncate">{c.error}</p>
+              {(c.error || c.screeningReason) && (
+                <p className={`text-xs mt-1 truncate ${c.error ? 'text-red-500' : 'text-amber-700'}`}>
+                  {c.error || c.screeningReason}
+                </p>
               )}
 
               {/* Explanation preview */}

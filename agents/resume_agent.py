@@ -24,6 +24,7 @@ from tools.pdf_tool import parse_pdf
 from tools.docx_tool import parse_docx
 from tools.ocr_tool import parse_with_ocr
 from agents.llm_client import build_chain, invoke_with_retry
+from agents.graduation_screening import evaluate_graduation_year_filter
 from server.ws.manager import manager
 
 logger = get_logger(__name__)
@@ -65,6 +66,7 @@ class ResumeState(TypedDict):
     candidate_id: str
     jd_structured: dict     # JobDescriptionStructured.model_dump()
     scoring_schema: dict    # ScoringSchema.model_dump()
+    graduation_filter: dict
 
     # ── Parsing stage ──
     raw_text: Optional[str]
@@ -76,12 +78,17 @@ class ResumeState(TypedDict):
     resume_structured: Optional[dict]
     llm_error: Optional[str]
 
+    # ── Screening stage ──
+    screening_reason: Optional[str]
+    screening_outcome: str
+    graduation_year_info: Optional[dict]
+
     # ── Evaluation stage ──
     evaluation: Optional[dict]
     eval_error: Optional[str]
 
     # ── Final ──
-    stage: str              # queued|parsing|extracting|evaluating|done|error|skipped
+    stage: str              # queued|parsing|extracting|screening|evaluating|done|error|skipped|filtered|review
     error: Optional[str]
 
 
@@ -170,7 +177,7 @@ async def llm_extract_node(state: ResumeState) -> dict[str, Any]:
         return {
             "resume_structured": structured.model_dump(),
             "llm_error": None,
-            "stage": "evaluating",
+            "stage": "screening",
         }
     except ValidationError as e:
         logger.error("resume_validation_error", file=state["file_name"], error=str(e))
@@ -188,6 +195,30 @@ async def llm_extract_node(state: ResumeState) -> dict[str, Any]:
             "stage": "error",
             "error": f"LLM extraction failed: {e}",
         }
+
+
+async def screen_candidate_node(state: ResumeState) -> dict[str, Any]:
+    """STEP 2c: Apply optional graduation-year screening before evaluation."""
+    await _emit(
+        state["session_id"],
+        state["candidate_id"],
+        "screening",
+        "Applying graduation-year screening…",
+    )
+
+    screening = evaluate_graduation_year_filter(
+        jd_structured=state["jd_structured"],
+        resume_structured=state["resume_structured"] or {},
+        config_dict=state.get("graduation_filter"),
+    )
+
+    return {
+        "screening_reason": screening["screening_reason"],
+        "screening_outcome": screening["screening_outcome"],
+        "graduation_year_info": screening["graduation_year_info"],
+        "stage": screening["stage"],
+        "error": None,
+    }
 
 
 async def evaluate_node(state: ResumeState) -> dict[str, Any]:
@@ -260,6 +291,10 @@ async def evaluate_node(state: ResumeState) -> dict[str, Any]:
             "stage": "done",
             "parse_method": state["parse_method"],
             "error": None,
+            "screening_outcome": state.get("screening_outcome", "ranked"),
+            "screening_reason": state.get("screening_reason"),
+            "graduation_year_info": state.get("graduation_year_info"),
+            "preview_available": state.get("file_type") == "pdf",
         }
 
         # Emit final result
@@ -305,7 +340,13 @@ def route_after_parse(state: ResumeState) -> str:
 def route_after_extract(state: ResumeState) -> str:
     if state.get("stage") == "error" or state.get("resume_structured") is None:
         return "end_error"
-    return "evaluate"
+    return "screen_candidate"
+
+
+def route_after_screen(state: ResumeState) -> str:
+    if state.get("stage") == "evaluating":
+        return "evaluate"
+    return "end_final"
 
 
 # ─── Graph compilation ────────────────────────────────────────────────────────
@@ -315,6 +356,7 @@ def build_resume_graph():
 
     builder.add_node("parse_file", parse_file_node)
     builder.add_node("llm_extract", llm_extract_node)
+    builder.add_node("screen_candidate", screen_candidate_node)
     builder.add_node("evaluate", evaluate_node)
 
     builder.add_edge(START, "parse_file")
@@ -326,7 +368,12 @@ def build_resume_graph():
     builder.add_conditional_edges(
         "llm_extract",
         route_after_extract,
-        {"evaluate": "evaluate", "end_error": END},
+        {"screen_candidate": "screen_candidate", "end_error": END},
+    )
+    builder.add_conditional_edges(
+        "screen_candidate",
+        route_after_screen,
+        {"evaluate": "evaluate", "end_final": END},
     )
     builder.add_edge("evaluate", END)
 

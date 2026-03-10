@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from 'react'
-import { Search, ChevronDown, ChevronUp, AlertTriangle, CheckCircle, XCircle } from 'lucide-react'
+import { Search, ChevronDown, ChevronUp, AlertTriangle, CheckCircle, XCircle, Eye } from 'lucide-react'
 import type { CandidateProgress } from '../types'
+import { getResumePreviewUrl } from '../api/client'
 
 interface Props {
   candidates: CandidateProgress[]
@@ -27,6 +28,21 @@ function StatusBadge({ stage }: { stage: string }) {
       <CheckCircle className="w-3.5 h-3.5" /> Ranked
     </span>
   )
+  if (stage === 'filtered') return (
+    <span className="flex items-center gap-1 text-xs text-amber-700 font-medium">
+      <AlertTriangle className="w-3.5 h-3.5" /> Filtered
+    </span>
+  )
+  if (stage === 'review') return (
+    <span className="flex items-center gap-1 text-xs text-yellow-700 font-medium">
+      <AlertTriangle className="w-3.5 h-3.5" /> Review
+    </span>
+  )
+  if (stage === 'skipped') return (
+    <span className="flex items-center gap-1 text-xs text-amber-600 font-medium">
+      <AlertTriangle className="w-3.5 h-3.5" /> Duplicate
+    </span>
+  )
   if (stage === 'error') return (
     <span className="flex items-center gap-1 text-xs text-red-500 font-medium">
       <XCircle className="w-3.5 h-3.5" /> Error
@@ -39,12 +55,13 @@ function StatusBadge({ stage }: { stage: string }) {
   )
 }
 
-export const ResultsTable: React.FC<Props> = ({ candidates }) => {
+export const ResultsTable: React.FC<Props> = ({ candidates, sessionId }) => {
   const [search, setSearch] = useState('')
   const [sortKey, setSortKey] = useState<SortKey>('score')
   const [sortDir, setSortDir] = useState<SortDir>('desc')
   const [expandedId, setExpandedId] = useState<string | null>(null)
   const [stageFilter, setStageFilter] = useState<'all' | 'done' | 'error'>('all')
+  const [previewingId, setPreviewingId] = useState<string | null>(null)
 
   const sorted = useMemo(() => {
     let list = [...candidates]
@@ -78,6 +95,7 @@ export const ResultsTable: React.FC<Props> = ({ candidates }) => {
     sortDir === 'desc' ? <ChevronDown className="w-4 h-4" /> : <ChevronUp className="w-4 h-4" />
 
   const warnings = candidates.filter(c => c.stage !== 'done')
+  const previewCandidate = candidates.find(c => c.candidateId === previewingId) || null
 
   return (
     <div className="max-w-7xl mx-auto px-4 py-8">
@@ -103,7 +121,9 @@ export const ResultsTable: React.FC<Props> = ({ candidates }) => {
             {warnings.map(c => (
               <li key={c.candidateId}>
                 <span className="font-medium">{c.fileName}</span>
-                {c.error && <span className="text-amber-600"> — {c.error}</span>}
+                {(c.error || c.screeningReason) && (
+                  <span className="text-amber-600"> — {c.error || c.screeningReason}</span>
+                )}
               </li>
             ))}
           </ul>
@@ -199,8 +219,10 @@ export const ResultsTable: React.FC<Props> = ({ candidates }) => {
                             </li>
                           ))}
                         </ul>
-                      ) : c.error ? (
-                        <span className="text-xs text-red-400">{c.error}</span>
+                      ) : c.error || c.screeningReason ? (
+                        <span className={`text-xs ${c.error ? 'text-red-400' : 'text-amber-700'}`}>
+                          {c.error || c.screeningReason}
+                        </span>
                       ) : <span className="text-gray-300 text-xs">—</span>}
                     </td>
                   </tr>
@@ -216,6 +238,16 @@ export const ResultsTable: React.FC<Props> = ({ candidates }) => {
                             <p className="text-gray-600">Phone: {c.phone || '—'}</p>
                             <p className="text-gray-500 text-xs mt-1">File: {c.fileName}</p>
                             {c.parseMethod && <p className="text-gray-500 text-xs">Parsed via: {c.parseMethod}</p>}
+                            {c.graduationYearInfo.selected_degree && (
+                              <p className="text-gray-500 text-xs">
+                                Degree used: {c.graduationYearInfo.selected_degree}
+                              </p>
+                            )}
+                            {c.graduationYearInfo.source !== 'not_applicable' && (
+                              <p className="text-gray-500 text-xs">
+                                Graduation year: {c.graduationYearInfo.graduation_year ?? 'Unknown'} ({c.graduationYearInfo.source})
+                              </p>
+                            )}
                           </div>
                           {c.explanation && c.explanation.length > 0 && (
                             <div>
@@ -236,6 +268,27 @@ export const ResultsTable: React.FC<Props> = ({ candidates }) => {
                               <p className="text-red-500 text-xs">{c.error}</p>
                             </div>
                           )}
+                          {!c.error && c.screeningReason && (
+                            <div className="sm:col-span-2">
+                              <p className="font-semibold text-amber-700 mb-1">Screening Details</p>
+                              <p className="text-amber-700 text-xs">{c.screeningReason}</p>
+                            </div>
+                          )}
+                          {c.previewAvailable && (
+                            <div className="sm:col-span-2 flex justify-end">
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  setPreviewingId(c.candidateId)
+                                }}
+                                className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-gray-200 bg-white text-sm text-gray-700 hover:border-brand-300 hover:text-brand-700 transition-colors"
+                              >
+                                <Eye className="w-4 h-4" />
+                                Preview Resume
+                              </button>
+                            </div>
+                          )}
                         </div>
                       </td>
                     </tr>
@@ -254,6 +307,45 @@ export const ResultsTable: React.FC<Props> = ({ candidates }) => {
           </table>
         </div>
       </div>
+
+      {previewingId && (
+        <div className="fixed inset-0 z-50 bg-black/50 px-4 py-6 sm:p-8" onClick={() => {
+          setPreviewingId(null)
+        }}>
+          <div
+            className="mx-auto flex h-full max-w-5xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl"
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between border-b border-gray-200 px-5 py-4">
+              <div className="min-w-0">
+                <h2 className="truncate text-lg font-semibold text-gray-900">{previewCandidate?.fileName || 'Resume preview'}</h2>
+                <p className="text-xs text-gray-500">Original submitted PDF</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setPreviewingId(null)
+                }}
+                className="rounded-lg border border-gray-200 px-3 py-1.5 text-sm text-gray-600 hover:bg-gray-50"
+              >
+                Close
+              </button>
+            </div>
+
+            <div className="min-h-0 flex-1 overflow-auto bg-gray-50 px-5 py-4">
+              <object
+                data={`${getResumePreviewUrl(sessionId, previewingId)}#toolbar=0&navpanes=0&scrollbar=1&view=FitH`}
+                type="application/pdf"
+                className="h-full min-h-[70vh] w-full rounded-xl border border-gray-200 bg-white"
+              >
+                <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+                  PDF preview is not available in this browser.
+                </div>
+              </object>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

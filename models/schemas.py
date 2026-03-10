@@ -1,5 +1,5 @@
 from __future__ import annotations
-from typing import Any, Optional
+from typing import Any, Literal, Optional
 from pydantic import BaseModel, Field
 
 
@@ -22,6 +22,13 @@ class JobDescriptionStructured(BaseModel):
     responsibilities: list[str] = Field(default_factory=list)
     keywords: list[str] = Field(default_factory=list)
     weighting_signals: dict[str, float] = Field(default_factory=dict)
+
+
+class GraduationYearFilterConfig(BaseModel):
+    enabled: bool = False
+    accepted_years: list[int] = Field(default_factory=list)
+    unknown_year_behavior: Literal["manual_review"] = "manual_review"
+    degree_selection: Literal["highest_relevant_degree"] = "highest_relevant_degree"
 
 
 # ─── Resume Schema ─────────────────────────────────────────────────────────────
@@ -80,6 +87,12 @@ class ResumeStructured(BaseModel):
     additional_info: dict[str, Any] = Field(default_factory=dict)
 
 
+class CandidateGraduationYearInfo(BaseModel):
+    selected_degree: Optional[str] = None
+    graduation_year: Optional[int] = None
+    source: Literal["explicit", "inferred", "unknown", "not_applicable"] = "not_applicable"
+
+
 # ─── Scoring Schema ────────────────────────────────────────────────────────────
 
 class ScoringDimension(BaseModel):
@@ -120,9 +133,13 @@ class CandidateResult(BaseModel):
     phone: Optional[str] = None
     score: Optional[int] = None
     explanation: list[str] = Field(default_factory=list)
-    stage: str = "queued"  # queued | parsing | extracting | evaluating | done | error | skipped
+    stage: str = "queued"  # queued | parsing | extracting | screening | evaluating | done | error | skipped | filtered | review
     error: Optional[str] = None
     parse_method: Optional[str] = None  # primary | ocr
+    screening_outcome: Literal["ranked", "filtered", "review", "duplicate", "error"] = "ranked"
+    screening_reason: Optional[str] = None
+    graduation_year_info: CandidateGraduationYearInfo = Field(default_factory=CandidateGraduationYearInfo)
+    preview_available: bool = False
 
 
 class SessionInfo(BaseModel):

@@ -10,14 +10,20 @@ from pathlib import Path
 
 import json as _json
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse
 
 from core.config import get_settings
 from core.logging_config import get_logger
-from models.schemas import StartProcessingResponse, ScoringSchema
+from models.schemas import (
+    GraduationYearFilterConfig,
+    StartProcessingResponse,
+    ScoringSchema,
+)
 from agents.jd_agent import parse_job_description
 from agents.orchestrator import (
+    close_session,
     create_session,
+    get_preview,
     get_results,
     get_session,
     run_pipeline,
@@ -40,6 +46,7 @@ async def process_resumes(
     jd_text: str = Form(...),
     files: list[UploadFile] = File(...),
     scoring_schema_json: str | None = Form(None),
+    graduation_filter_json: str | None = Form(None),
 ):
     """
     Accepts the raw JD text + uploaded resume files.
@@ -67,6 +74,16 @@ async def process_resumes(
             raise HTTPException(status_code=400, detail=f"Invalid scoring_schema_json: {e}")
     else:
         scoring_schema_dict = scoring_schema.model_dump()
+
+    if graduation_filter_json:
+        try:
+            graduation_filter_dict = GraduationYearFilterConfig(
+                **_json.loads(graduation_filter_json)
+            ).model_dump()
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"Invalid graduation_filter_json: {e}")
+    else:
+        graduation_filter_dict = GraduationYearFilterConfig().model_dump()
 
     # ── Validate & stream files to disk ───────────────────────────────────────
     os.makedirs(settings.UPLOAD_DIR, exist_ok=True)
@@ -111,7 +128,15 @@ async def process_resumes(
 
     # ── Create session & launch pipeline asynchronously ───────────────────────
     session_id = create_session(jd_id, len(valid_files))
-    asyncio.create_task(run_pipeline(valid_files, session_id, jd_dict, scoring_schema_dict))
+    asyncio.create_task(
+        run_pipeline(
+            valid_files,
+            session_id,
+            jd_dict,
+            scoring_schema_dict,
+            graduation_filter_dict,
+        )
+    )
 
     logger.info(
         "pipeline_started",
@@ -145,3 +170,38 @@ async def get_session_results(session_id: str):
         "failed": session.failed,
         "results": [r.model_dump() for r in results],
     }
+
+
+@router.get("/preview-file/{session_id}/{candidate_id}")
+async def get_resume_preview(session_id: str, candidate_id: str):
+    session = get_session(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    preview = get_preview(session_id, candidate_id)
+    if not preview:
+        raise HTTPException(status_code=404, detail="Resume preview not available")
+
+    if preview.get("content_type") != "application/pdf":
+        raise HTTPException(status_code=404, detail="Resume preview not available")
+
+    file_path = preview.get("file_path")
+    if not file_path or not os.path.exists(file_path):
+        raise HTTPException(status_code=404, detail="Resume preview not available")
+
+    return FileResponse(
+        path=file_path,
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": f'inline; filename="{preview["file_name"]}"',
+            "Cache-Control": "no-store",
+            "X-Content-Type-Options": "nosniff",
+        },
+    )
+
+
+@router.delete("/session/{session_id}")
+async def delete_resume_session(session_id: str):
+    if not close_session(session_id):
+        raise HTTPException(status_code=404, detail="Session not found")
+    return {"message": "Session closed"}

@@ -1,16 +1,23 @@
 import React, { useCallback, useRef, useState } from 'react'
 import { Upload, FileText, X, ChevronRight, Loader2, AlertCircle } from 'lucide-react'
-import type { JDStructured, ScoringSchema } from '../types'
+import type { GraduationYearFilterConfig, JDStructured, ScoringSchema } from '../types'
 import { processResumes } from '../api/client'
 
 interface Props {
   jdText: string
   jdStructured: JDStructured
   scoringSchema: ScoringSchema
+  graduationFilter: GraduationYearFilterConfig
   onProcessingStarted: (sessionId: string, totalFiles: number) => void
 }
 
-export const ResumeUpload: React.FC<Props> = ({ jdText, jdStructured, scoringSchema, onProcessingStarted }) => {
+export const ResumeUpload: React.FC<Props> = ({
+  jdText,
+  jdStructured,
+  scoringSchema,
+  graduationFilter,
+  onProcessingStarted,
+}) => {
   const [files, setFiles] = useState<File[]>([])
   const [dragging, setDragging] = useState(false)
   const [loading, setLoading] = useState(false)
@@ -41,7 +48,7 @@ export const ResumeUpload: React.FC<Props> = ({ jdText, jdStructured, scoringSch
     setLoading(true)
     setError(null)
     try {
-      const res = await processResumes(jdText, files, scoringSchema)
+      const res = await processResumes(jdText, files, scoringSchema, graduationFilter)
       onProcessingStarted(res.session_id, res.total_files)
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Failed to start processing'
@@ -64,6 +71,11 @@ export const ResumeUpload: React.FC<Props> = ({ jdText, jdStructured, scoringSch
         <div className="mt-2 inline-flex items-center gap-2 px-3 py-1 rounded-full bg-brand-50 border border-brand-100 text-xs text-brand-700">
           <span className="font-medium">Role:</span> {jdStructured.role_title}
         </div>
+        {graduationFilter.enabled && graduationFilter.accepted_years.length > 0 && (
+          <div className="mt-2 inline-flex items-center gap-2 px-3 py-1 rounded-full bg-amber-50 border border-amber-100 text-xs text-amber-700">
+            <span className="font-medium">Grad years:</span> {graduationFilter.accepted_years.join(', ')}
+          </div>
+        )}
       </div>
 
       {/* Drop zone */}

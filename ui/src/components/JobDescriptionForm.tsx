@@ -1,11 +1,16 @@
 import React, { useState } from 'react'
 import { Briefcase, ChevronRight, Loader2, Trash2, Plus } from 'lucide-react'
 import { parseJD } from '../api/client'
-import type { JDStructured, ScoringSchema, ScoringDimension } from '../types'
+import type {
+  GraduationYearFilterConfig,
+  JDStructured,
+  ScoringSchema,
+  ScoringDimension,
+} from '../types'
 
 interface Props {
   onParsed: (jdText: string, structured: JDStructured, schema: ScoringSchema) => void
-  onProceed: (schema: ScoringSchema) => void
+  onProceed: (schema: ScoringSchema, graduationFilter: GraduationYearFilterConfig) => void
 }
 
 function toSnakeCase(label: string): string {
@@ -13,6 +18,14 @@ function toSnakeCase(label: string): string {
 }
 
 const EMPTY_NEW_DIM = { label: '', description: '', max_points: '' }
+const DEFAULT_GRADUATION_FILTER: GraduationYearFilterConfig = {
+  enabled: false,
+  accepted_years: [],
+  unknown_year_behavior: 'manual_review',
+  degree_selection: 'highest_relevant_degree',
+}
+const CURRENT_YEAR = new Date().getFullYear()
+const SUGGESTED_YEARS = Array.from({ length: 6 }, (_, idx) => CURRENT_YEAR - 1 + idx)
 
 export const JobDescriptionForm: React.FC<Props> = ({ onParsed, onProceed }) => {
   const [jdText, setJdText] = useState('')
@@ -23,9 +36,13 @@ export const JobDescriptionForm: React.FC<Props> = ({ onParsed, onProceed }) => 
   const [showAddForm, setShowAddForm] = useState(false)
   const [newDim, setNewDim] = useState(EMPTY_NEW_DIM)
   const [addError, setAddError] = useState<string | null>(null)
+  const [graduationFilter, setGraduationFilter] = useState<GraduationYearFilterConfig>(DEFAULT_GRADUATION_FILTER)
+  const [yearInput, setYearInput] = useState('')
+  const [yearError, setYearError] = useState<string | null>(null)
 
   const total = dims.reduce((s, d) => s + d.max_points, 0)
   const totalOk = total === 100
+  const graduationFilterValid = !graduationFilter.enabled || graduationFilter.accepted_years.length > 0
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -35,6 +52,9 @@ export const JobDescriptionForm: React.FC<Props> = ({ onParsed, onProceed }) => 
     setPreview(null)
     setDims([])
     setShowAddForm(false)
+    setGraduationFilter(DEFAULT_GRADUATION_FILTER)
+    setYearInput('')
+    setYearError(null)
     try {
       const res = await parseJD(jdText)
       const structured = res.structured as JDStructured
@@ -81,7 +101,38 @@ export const JobDescriptionForm: React.FC<Props> = ({ onParsed, onProceed }) => 
   }
 
   const handleProceed = () => {
-    onProceed({ dimensions: dims })
+    onProceed({ dimensions: dims }, graduationFilter)
+  }
+
+  const addYear = (rawValue: string) => {
+    const year = parseInt(rawValue.trim(), 10)
+    if (isNaN(year) || year < 2000 || year > 2100) {
+      setYearError('Enter a valid graduation year.')
+      return
+    }
+    setGraduationFilter(prev => ({
+      ...prev,
+      accepted_years: Array.from(new Set([...prev.accepted_years, year])).sort((a, b) => a - b),
+    }))
+    setYearInput('')
+    setYearError(null)
+  }
+
+  const removeYear = (year: number) => {
+    setGraduationFilter(prev => ({
+      ...prev,
+      accepted_years: prev.accepted_years.filter(item => item !== year),
+    }))
+  }
+
+  const toggleGraduationFilter = (enabled: boolean) => {
+    setGraduationFilter(prev => ({
+      ...prev,
+      enabled,
+      accepted_years: enabled ? prev.accepted_years : [],
+    }))
+    setYearInput('')
+    setYearError(null)
   }
 
   return (
@@ -165,6 +216,100 @@ export const JobDescriptionForm: React.FC<Props> = ({ onParsed, onProceed }) => 
           </div>
 
           {/* Editable scoring schema */}
+          <div className="rounded-xl border border-amber-200 bg-amber-50 p-5">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <h3 className="font-semibold text-amber-900">Graduation Year Filter</h3>
+                <p className="text-xs text-amber-700 mt-1">
+                  Optional. Use this for intern and fresher roles when only specific graduating batches should be considered.
+                </p>
+              </div>
+              <label className="inline-flex items-center gap-2 text-sm font-medium text-amber-900">
+                <input
+                  type="checkbox"
+                  checked={graduationFilter.enabled}
+                  onChange={e => toggleGraduationFilter(e.target.checked)}
+                  className="rounded border-amber-300 text-brand-600 focus:ring-brand-500"
+                />
+                Enable filter
+              </label>
+            </div>
+
+            {graduationFilter.enabled && (
+              <div className="mt-4 space-y-4">
+                <div>
+                  <p className="text-xs font-semibold text-amber-800 uppercase tracking-wider mb-2">
+                    Accepted Graduation Years
+                  </p>
+                  <div className="flex flex-wrap gap-2">
+                    {SUGGESTED_YEARS.map(year => {
+                      const active = graduationFilter.accepted_years.includes(year)
+                      return (
+                        <button
+                          key={year}
+                          type="button"
+                          onClick={() => active ? removeYear(year) : addYear(String(year))}
+                          className={`px-3 py-1 rounded-full text-xs font-medium transition-colors ${
+                            active
+                              ? 'bg-brand-600 text-white'
+                              : 'bg-white border border-amber-200 text-amber-800 hover:border-brand-300'
+                          }`}
+                        >
+                          {year}
+                        </button>
+                      )
+                    })}
+                  </div>
+                </div>
+
+                <div className="flex flex-col sm:flex-row gap-2 sm:items-center">
+                  <input
+                    type="number"
+                    min={2000}
+                    max={2100}
+                    value={yearInput}
+                    onChange={e => setYearInput(e.target.value)}
+                    placeholder="Add another year"
+                    className="w-full sm:w-44 text-sm border border-amber-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-1 focus:ring-brand-500"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => addYear(yearInput)}
+                    className="px-3 py-2 rounded-lg bg-white border border-amber-200 text-sm text-amber-900 hover:border-brand-300 transition-colors"
+                  >
+                    Add year
+                  </button>
+                  <p className="text-xs text-amber-700">
+                    Unknown or low-confidence graduation years will go to manual review.
+                  </p>
+                </div>
+
+                {graduationFilter.accepted_years.length > 0 && (
+                  <div className="flex flex-wrap gap-2">
+                    {graduationFilter.accepted_years.map(year => (
+                      <button
+                        key={year}
+                        type="button"
+                        onClick={() => removeYear(year)}
+                        className="inline-flex items-center gap-1 px-3 py-1 rounded-full bg-white border border-amber-200 text-xs text-amber-900 hover:border-red-300"
+                      >
+                        {year}
+                        <Trash2 className="w-3 h-3" />
+                      </button>
+                    ))}
+                  </div>
+                )}
+
+                {yearError && <p className="text-xs text-red-600">{yearError}</p>}
+                {!graduationFilterValid && (
+                  <p className="text-xs text-red-600 font-medium">
+                    Add at least one accepted graduation year to enable this filter.
+                  </p>
+                )}
+              </div>
+            )}
+          </div>
+
           <div className="rounded-xl border border-blue-200 bg-blue-50 p-5">
             <div className="flex items-start justify-between mb-1">
               <h3 className="font-semibold text-blue-800">Scoring Rubric</h3>
@@ -295,7 +440,7 @@ export const JobDescriptionForm: React.FC<Props> = ({ onParsed, onProceed }) => 
             <button
               type="button"
               onClick={handleProceed}
-              disabled={!totalOk || dims.length === 0}
+              disabled={!totalOk || !graduationFilterValid || dims.length === 0}
               className="flex items-center gap-2 px-6 py-3 rounded-xl bg-brand-600 text-white font-semibold text-sm hover:bg-brand-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors shadow-md"
             >
               Looks good — proceed to upload <ChevronRight className="w-4 h-4" />
