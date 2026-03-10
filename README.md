@@ -31,16 +31,16 @@ An open-source tool that automates resume screening using LLMs. Upload a job des
 ## Architecture
 
 ```
-┌──────────────────────────────────────────────────────┐
+┌──────────────────────────────────────────────────────-┐
 │                    Frontend (React)                   │
-│  Step 1: JD Input + Schema Review/Edit               │
+│  Step 1: JD Input + Schema Review/Edit                │
 │  Step 2: Upload → Step 3: Processing → Step 4: Results│
-└─────────────────────┬────────────────────────────────┘
+└─────────────────────┬────────────────────────────────-┘
                       │ HTTP + WebSocket
-┌─────────────────────▼────────────────────────────────┐
+┌─────────────────────▼──────────────────────────────── ┐
 │                   FastAPI Backend                     │
 │                                                       │
-│  POST /api/jobs/parse   (JD parse + schema, cached)  │
+│  POST /api/jobs/parse   (JD parse + schema, cached)   │
 │  POST /api/resumes/process  (start pipeline)          │
 │  GET  /api/resumes/results/{session_id}               │
 │  GET  /api/export/{session_id}  (Excel download)      │
@@ -50,7 +50,7 @@ An open-source tool that automates resume screening using LLMs. Upload a job des
 │    parse_file → llm_extract → evaluate                │
 │                    ↑                                  │
 │    evaluate uses per-dimension scoring schema         │
-└──────────────────────────────────────────────────────┘
+└──────────────────────────────────────────────────────-┘
 ```
 
 ## Quick Start
